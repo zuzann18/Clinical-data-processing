@@ -66,14 +66,8 @@ This script is the primary source for dataset generation. It processes raw clini
 - Generates structured datasets for analysis.
 - Ensures data consistency and integrity.
 
-**Dataset Characteristics:**
-- The processed dataset is substantial, containing thousands of records covering patient demographics, clinical observations, and treatment outcomes.
-- The dataset is the foundation for all subsequent analyses and summaries.
-- It is stored in structured formats such as `.csv` and `.RData` for compatibility with analytical tools.
-
-## Data Files
+## Generates structured dataset 
 - `adam_summary.txt` - Summary statistics of different datasets, including demographic, adverse events, and vital signs data.
-- `sdtm_adam.Rmd` - R Markdown script for generating reports from study data.
 - `adam_advs.csv`, `sdtm_vs.csv`, `adam_adsl.csv`, `sdtm_ae.csv`, `adam_adae.csv`, `sdtm_dm.csv` - Various datasets containing structured clinical trial data, all derived from the `creating_datasets.Rmd` script.
 
 ## Usage
