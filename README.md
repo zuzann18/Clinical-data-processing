@@ -8,7 +8,7 @@ This repository contains scripts and datasets for processing and analyzing clini
 
 
 This repository includes a structured dataset from a clinical trial. 
-The processed dataset consists of approximately** 10,000 records and 300+ variables**, covering patient demographics, clinical observations, and treatment outcomes.
+The processed dataset consists of approximately **10,000 records and 300+ variables**, covering patient demographics, clinical observations, and treatment outcomes.
 
 The data consists of multiple timepoints (visits) for each subject, denoted by prefixes such as V0 (baseline), D1, D2, etc., up to D7. Each timepoint captures various aspects of the patient's condition and treatment.
 
