@@ -64,8 +64,40 @@ This script is the primary source for dataset generation. It processes raw clini
 - Ensures data consistency and integrity.
 
 ## Generates structured dataset 
-- `adam_summary.txt` - Summary statistics of different datasets, including demographic, adverse events, and vital signs data.
-- `adam_advs.csv`, `sdtm_vs.csv`, `adam_adsl.csv`, `sdtm_ae.csv`, `adam_adae.csv`, `sdtm_dm.csv` - Various datasets containing structured clinical trial data, all derived from the `creating_datasets.Rmd` script.
+## SDTM and ADaM Processing Overview
+
+This script processes clinical trial data following the CDISC SDTM and ADaM standards, providing a streamlined way to handle patient demographics, adverse events, and vital signs. Key updates ensure logical mapping, additional statistics, and improved data visualization for better insights into the dataset.
+
+
+1. **Enhanced Mapping for SDTM Domains**:
+   - Mappings were reviewed for `VSORRES` to ensure logical handling of different measurement types (e.g., blood pressure, temperature, heart rate).
+   - Explicitly linked `VSORRES` to measurement-specific variables from the dataset, avoiding misinterpretation of mixed data formats.
+
+2. **ADVS Variable Enhancements**:
+   - **New Variables**: Extracted systolic and diastolic blood pressure, numeric results, and identified the type of vital sign measurement (e.g., heart rate, temperature).
+   - **Logical Categorization**: Utilized the `VSTESTCD` and `VSORRES` data to create separate fields for systolic blood pressure (`SYSTOLIC_BP`), diastolic blood pressure (`DIASTOLIC_BP`), and a unified numeric representation (`NUMERIC_VALUE`).
+
+3. **Statistical Analysis**:
+   - Added descriptive statistics to ADVS and ADSL datasets, including quartiles, skewness, kurtosis, and variance.
+   - Validated and excluded invalid data formats to ensure robust numeric computations.
+   - Included missing value checks and reporting for critical variables like `VSORRES`.
+
+4. **Visualization Enhancements**:
+   - Created gender distribution bar plots.
+   - Generated box plots for age groups and vital sign measurements.
+   - Visualization now reflects precise mappings of the SDTM fields and measurement types.
+
+### File Outputs
+
+- **Processed SDTM Datasets**:
+  - `sdtm_dm.csv`: Subject demographics data.
+  - `sdtm_ae.csv`: Adverse event data.
+  - `sdtm_vs.csv`: Vital sign measurements.
+
+- **Processed ADaM Datasets**:
+  - `adam_adsl.csv`: Subject-level analysis dataset.
+  - `adam_adae.csv`: Adverse event analysis dataset.
+  - `adam_advs.csv`: Vital signs analysis dataset.
 
 ## Usage
 1. Load the required R packages.
