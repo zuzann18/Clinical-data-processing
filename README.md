@@ -1,8 +1,6 @@
 
-## Overview
+# Clinical-data-processing
 This repository contains scripts and datasets for processing and analyzing clinical study data. The scripts automate data cleaning, transformation, and summary generation.
-
-## Study Clinical Data
 
 ### Dataset Description
 
