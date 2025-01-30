@@ -1,0 +1,372 @@
+---
+title: "SDTM and ADaM Dataset Processing"
+author: "ZW"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_notebook: default
+---
+# Introduction
+
+This document describes the process of loading, transforming, and analyzing clinical trial data for SDTM and ADaM compliance. It also includes exploratory data analysis.
+
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(pander)
+library(moments) # For skewness and kurtosis
+library(psych)
+```
+
+## Load and Prepare Data
+
+```{r load-data}
+# Set working directory and load data
+setwd("C:/Users/zuzan/OneDrive/Pulpit/covid")
+raw_data <- read.csv2("C:/Users/zuzan/OneDrive/Pulpit/covid/faktyczne_dane.csv", 
+                      stringsAsFactors = FALSE, check.names = FALSE, 
+                      fileEncoding = "UTF-8")
+source <- source("automatyzacja.R",encoding = "UTF-8")
+# Export column names for reference
+write.csv(data.frame(Columns = colnames(raw_data)), "columns_list.csv", row.names = FALSE)
+
+# Adjust column names for processing
+colnames(raw_data) <- make.names(colnames(raw_data), unique = TRUE)
+```
+
+```{r}
+column_types <- sapply(raw_data, class)
+```
+```{r}
+numeric_df <- raw_data[sapply(raw_data, is.numeric)]
+print(numeric_df)
+```
+
+```{r}
+res<- tabela_wynikowa_tylko_ogol(df=numeric_df,colnames(numeric_df), wyjatki = NULL)
+pander(res, caption = "Statystyki opisowe dla badań kliniicznych")
+```
+
+```{r}
+
+```
+
+
+## Add Missing Columns
+
+```{r add-missing-columns}
+if (!"STUDYID" %in% colnames(raw_data)) {
+  raw_data$STUDYID <- "Study1"
+  cat("Column STUDYID added with default value 'Study1'.\n")
+}
+
+if (!"USUBJID" %in% colnames(raw_data)) {
+  cat("Column USUBJID is missing. Creating it dynamically using STUDYID and row numbers.\n")
+  raw_data$USUBJID <- paste0(raw_data$STUDYID, "_", seq_len(nrow(raw_data)))
+}
+```
+
+## Define and Map SDTM Domains
+
+```{r define-sdtm}
+sdtm_mappings <- list(
+  DM = list(
+    STUDYID = "StudyID",
+    DOMAIN = "DM",
+    USUBJID = "USUBJID",
+    AGE = "AGE",
+    SEX = "SEX",
+    RACE = "RACE",
+    ETHNIC = "ETHNIC"
+  ),
+  AE = list(
+    STUDYID = "StudyID",
+    DOMAIN = "AE",
+    USUBJID = "USUBJID",
+    AETERM = "AdverseEvent",
+    AESTDTC = "AE.AESTDAT.DATE..Data.rozpoczęcia.os1",
+    AEENDTC = "AE.AEENDAT..Data.zakończenia.os1",
+    AESEV = "Severity",
+    AESER = "AE.AESER..Czy.zdarzenie.ciężkie..os1"
+  ),
+  VS = list(
+    STUDYID = "StudyID",
+    DOMAIN = "VS",
+    USUBJID = "USUBJID",
+    VSTESTCD = "VitalSignTest",
+    VSORRES = "Result",
+    VSSTRESN = "StandardizedResult",
+    VSDTC = "V0.VS.VSDAT.DATE..Data.wykonania.pomiarów",
+    VSPOS = "Position"
+  )
+)
+```
+
+```{r map-domains}
+create_sdtm <- function(raw_data, domain_mapping, domain_name) {
+  mapped_columns <- sapply(domain_mapping, function(pattern) {
+    match <- agrep(pattern, colnames(raw_data), value = TRUE, ignore.case = TRUE, max.distance = 0.2)
+    if (length(match) > 0) {
+      return(match[1])  # Use the best match
+    } else {
+      return(NA)  # No match found
+    }
+  })
+  
+  cat("Mapped columns for", domain_name, "domain:\n")
+  print(mapped_columns)
+  
+  domain_data <- raw_data[, na.omit(mapped_columns), drop = FALSE]
+  colnames(domain_data) <- names(na.omit(mapped_columns))
+  
+  if (!"DOMAIN" %in% colnames(domain_data)) {
+    domain_data$DOMAIN <- domain_name
+  }
+  
+  if (!"USUBJID" %in% colnames(domain_data)) {
+    stop(paste("USUBJID is missing in the", domain_name, "domain. Check the raw data or mapping."))
+  }
+  
+  return(domain_data)
+}
+
+sdtm_dm <- create_sdtm(raw_data, sdtm_mappings$DM, "DM")
+sdtm_ae <- create_sdtm(raw_data, sdtm_mappings$AE, "AE")
+sdtm_vs <- create_sdtm(raw_data, sdtm_mappings$VS, "VS")
+```
+```{r}
+# Ensure AGE is numeric
+if ("AGE" %in% colnames(raw_data)) {
+  raw_data$AGE <- as.numeric(raw_data$AGE)
+  
+  # Handle missing values in AGE
+  if (any(is.na(raw_data$AGE))) {
+    raw_data$AGE[is.na(raw_data$AGE)] <- median(raw_data$AGE, na.rm = TRUE)
+    cat("Missing values in AGE were replaced with the median.\n")
+  }
+}
+
+```
+
+## Save SDTM Datasets
+
+```{r save-sdtm}
+write.csv(sdtm_dm, "sdtm_dm.csv", row.names = FALSE)
+write.csv(sdtm_ae, "sdtm_ae.csv", row.names = FALSE)
+write.csv(sdtm_vs, "sdtm_vs.csv", row.names = FALSE)
+```
+
+## Create ADaM Datasets
+
+```{r create-adam}
+adsl <- sdtm_dm %>%
+  mutate(AGEGR1 = ifelse(as.numeric(AGE) < 18, "<18", ifelse(as.numeric(AGE) >= 65, "65+", "18-64")),
+         SEXN = ifelse(SEX == "M", 1, ifelse(SEX == "F", 2, NA))) %>%
+  select(STUDYID, USUBJID, AGE, AGEGR1, SEX, SEXN, RACE, ETHNIC)
+
+write.csv(adsl, "adam_adsl.csv", row.names = FALSE)
+cat("ADSL dataset created and saved as adam_adsl.csv\n")
+```
+
+## Descriptive Statistics for ADSL
+
+```{r adsl-stats}
+adsl_stats <- adsl %>% 
+  summarise(
+    AGE_MEAN = mean(AGE, na.rm = TRUE),
+    AGE_MEDIAN = median(AGE, na.rm = TRUE),
+    AGE_SD = sd(AGE, na.rm = TRUE),
+    AGE_VARIANCE = var(AGE, na.rm = TRUE),
+    AGE_SKEWNESS = skewness(AGE, na.rm = TRUE),
+    AGE_KURTOSIS = kurtosis(AGE, na.rm = TRUE),
+    AGE_MIN = min(AGE, na.rm = TRUE),
+    AGE_MAX = max(AGE, na.rm = TRUE),
+    AGE_QUANTILES = list(quantile(AGE, probs = c(0.25, 0.5, 0.75), na.rm = TRUE))
+  )
+print(adsl_stats)
+```
+
+## Gender Distribution
+
+```{r gender-distribution}
+gender_counts <- adsl %>% 
+  mutate(SEX = ifelse(SEX == "", "Unknown", SEX)) %>%  # Add Unknown category for missing values
+  group_by(SEX) %>% 
+  summarise(COUNT = n())
+print(gender_counts)
+
+gender_plot <- ggplot(gender_counts, aes(x = SEX, y = COUNT, fill = SEX)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Gender Distribution", x = "Gender", y = "Count") +
+  theme_minimal()
+print(gender_plot)
+```
+
+## Save Summary to File
+
+```{r save-summary}
+sink("adam_summary.txt")
+cat("ADSL Summary:\n")
+summary(adsl)
+cat("\nADAE Summary:\n")
+summary(sdtm_ae)
+cat("\nADVS Summary:\n")
+summary(sdtm_vs)
+sink()
+```
+
+## Descriptive Statistics for ADVS - VSORRES
+
+#### VSORRES is a generic column name in the vital signs (VS) domain used to store measurement results for various vital signs such as diastolic blood pressure, heart rate, respiratory rate, and body temperature
+
+#### Temperature
+
+```{r}
+class("V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.")
+as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.)
+```
+
+
+```{r advs-stats}
+temp_stats <- raw_data %>% 
+  summarise(
+    Mean_temperature =mean(as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.), na.rm = TRUE), 
+    median_temp = median(as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.), na.rm = TRUE),
+    sd_tem = sd(as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C. ), na.rm = TRUE),
+    var_temp =var(as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C. ), na.rm = TRUE),
+    Quartiles = list(quantile(as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.), probs = c(0.25, 0.5, 0.75), na.rm = TRUE))
+  )
+
+print(temp_stats)
+```
+
+# Boxplot for VSORRES 
+
+```{r}
+boxplot_TEMP.VSORRE<- ggplot(raw_data, aes(y = as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.))) +
+  geom_boxplot() +
+  labs(title = "Maksymalna.temperatura.ciała",  y = "Temperatura") +
+  theme_minimal()
+print(boxplot_TEMP.VSORRE)
+```
+
+## Filter Outliers for Body Temperature
+
+```{r filter-outliers}
+# Identify outliers based on predefined thresholds
+temperature_column <- "V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C."
+threshold_min <- 30
+threshold_max <- 45
+
+raw_data <- raw_data %>% 
+  mutate(!!sym(temperature_column) := as.numeric(!!sym(temperature_column)))
+
+# Count and filter out extreme outliers
+extreme_outliers <- raw_data %>% 
+  filter(!!sym(temperature_column) < threshold_min | !!sym(temperature_column) > threshold_max)
+
+valid_data <- raw_data %>% 
+  filter(!!sym(temperature_column) >= threshold_min & !!sym(temperature_column) <= threshold_max)
+
+cat("Number of extreme outliers in temperature:", nrow(extreme_outliers), "\n")
+cat("Filtered data dimensions:", dim(valid_data), "\n")
+```
+
+## Boxplot for Filtered Body Temperature
+
+```{r filtered-temp-boxplot}
+boxplot_filtered_temp <- ggplot(valid_data, aes(y = !!sym(temperature_column))) +
+  geom_boxplot() +
+  labs(title = "Filtered Body Temperature Distribution", y = "Temperature (°C)") +
+  theme_minimal()
+print(boxplot_filtered_temp)
+```
+```{r}
+filtered_temp_stats <- valid_data %>%
+  summarise(
+    Mean_Temperature = mean(!!sym(temperature_column), na.rm = TRUE),
+    Median_Temperature = median(!!sym(temperature_column), na.rm = TRUE),
+    SD_Temperature = sd(!!sym(temperature_column), na.rm = TRUE),
+    Variance_Temperature = var(!!sym(temperature_column), na.rm = TRUE),
+    Skewness_Temperature = skewness(!!sym(temperature_column), na.rm = TRUE),
+    Kurtosis_Temperature = kurtosis(!!sym(temperature_column), na.rm = TRUE),
+    Min_Temperature = min(!!sym(temperature_column), na.rm = TRUE),
+    Max_Temperature = max(!!sym(temperature_column), na.rm = TRUE),
+    Quartiles_Temperature = list(quantile(!!sym(temperature_column), probs = c(0.25, 0.5, 0.75), na.rm = TRUE))
+  )
+
+print("Statistics for Filtered Body Temperature:")
+print(filtered_temp_stats)
+
+```
+
+
+
+### Type of measurements 
+```{r Checking type of measurements}
+grep("VSORRES", colnames(raw_data), value = TRUE, ignore.case = TRUE)
+
+print("VSORRES Column Content Preview:")
+print(head(raw_data[, grep("VSORRES", colnames(raw_data), value = TRUE, ignore.case = TRUE), drop = FALSE]))
+```
+
+## Smoking Status Distribution
+
+```{r smoking-status}
+if("V0.DD.SU.SUTRT_CIGARETTES.SUENRF..Palenie.papierosów" %in% colnames(raw_data)) {
+  smoking_data <- raw_data %>% 
+    group_by(`V0.DD.SU.SUTRT_CIGARETTES.SUENRF..Palenie.papierosów`) %>% 
+    summarise(Count = n())
+  
+  print("Smoking Status Counts:")
+  print(smoking_data)
+  
+  
+
+} else {
+  print("Smoking status column not found in the dataset.")
+}
+
+```
+```{r}
+smoking_plot <- ggplot(smoking_data, aes(x = `V0.DD.SU.SUTRT_CIGARETTES.SUENRF..Palenie.papierosów`, y = Count, fill = `V0.DD.SU.SUTRT_CIGARETTES.SUENRF..Palenie.papierosów`)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Rozkład statusu palenia papierosów",
+    x = "Status palenia",
+    y = "Liczba pacjentów",
+    fill = "Status"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold") 
+  )
+
+print(smoking_plot)
+
+```
+
+## Save Knitr Tables
+
+```{r save-knitr}
+pandoc.table(adsl_stats, style = "rmarkdown")
+pandoc.table(advs_stats, style = "rmarkdown")
+```
+
+```{r}
+# Wyszukiwanie zmiennych zawierających określony wzorzec
+grep("V0\\.DD\\.SU\\.SUTRT_CIGARETTES\\.SUENRF", colnames(raw_data), value = TRUE)
+
+```
+```{r}
+length(grep("V0\\.DD\\.SU\\.SUTRT_CIGARETTES\\.SUENRF", colnames(raw_data)))
+
+```
+
+
+```
+
+
