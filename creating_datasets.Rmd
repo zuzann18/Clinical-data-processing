@@ -18,6 +18,9 @@ library(knitr)
 library(pander)
 library(moments) # For skewness and kurtosis
 library(psych)
+library(pROC)
+source("automatyzacja.R",encoding = "UTF-8")
+source("tabele_dla_modeli_ang.R", encoding = "UTF-8")
 ```
 
 ## Load and Prepare Data
@@ -28,28 +31,60 @@ setwd("C:/Users/zuzan/OneDrive/Pulpit/covid")
 raw_data <- read.csv2("C:/Users/zuzan/OneDrive/Pulpit/covid/faktyczne_dane.csv", 
                       stringsAsFactors = FALSE, check.names = FALSE, 
                       fileEncoding = "UTF-8")
-source <- source("automatyzacja.R",encoding = "UTF-8")
+
 # Export column names for reference
 write.csv(data.frame(Columns = colnames(raw_data)), "columns_list.csv", row.names = FALSE)
 
 # Adjust column names for processing
 colnames(raw_data) <- make.names(colnames(raw_data), unique = TRUE)
+
 ```
 
 ```{r}
-column_types <- sapply(raw_data, class)
+#column_types <- sapply(raw_data, class)
 ```
+## Numeric Values
 ```{r}
 numeric_df <- raw_data[sapply(raw_data, is.numeric)]
-print(numeric_df)
-```
+selected_df <- numeric_df[1:5, 3:(3+5-1)]  # Ogranicza liczbę wierszy do 5 i wybiera odpowiednie kolumny
+print(selected_df)
 
+```
+## Descriptive statistics
 ```{r}
 res<- tabela_wynikowa_tylko_ogol(df=numeric_df,colnames(numeric_df), wyjatki = NULL)
-pander(res, caption = "Statystyki opisowe dla badań kliniicznych")
+#pander(res, caption = "Statystyki opisowe dla badań klinicznych")
 ```
 
 ```{r}
+# sprawdzić pusta liczbe kolumn 
+# empty_cols <- colSums(is.na(raw_data_clean)) == nrow(raw_data_clean)
+# length(empty_cols)
+# sum(empty_cols)  # is.na() sprawdza tylko wartości NA, ale kolumny mogą mieć inne „puste” wartości, np. puste stringi ("") lub wartości NULL
+```
+```{r}
+#unique(raw_data)
+```
+
+
+
+
+
+```{r}
+empty_name_spaces <- sum(trimws(names(raw_data)) == "")
+
+```
+```{r}
+empty_cols <- sapply(raw_data, function(col) all(is.na(col) | col == "" | trimws(as.character(col)) == ""))
+
+cat("Liczba całkowicie pustych kolumn:", sum(empty_cols), "\n")
+cat("Liczba wszystkich kolumn:", length(empty_cols), "\n")
+cat("Liczba kolumn w raw_data:", ncol(raw_data), "\n")
+
+```
+```{r}
+raw_data_clean <- raw_data[, !empty_cols]
+dim(raw_data_clean)  # Sprawdzenie nowego wymiaru danych
 
 ```
 
@@ -242,15 +277,6 @@ temp_stats <- raw_data %>%
 print(temp_stats)
 ```
 
-# Boxplot for VSORRES 
-
-```{r}
-boxplot_TEMP.VSORRE<- ggplot(raw_data, aes(y = as.numeric(raw_data$V0.COVIDOBJ.VSTEST_TEMP.VSORRES..Maksymalna.temperatura.ciała...C.))) +
-  geom_boxplot() +
-  labs(title = "Maksymalna.temperatura.ciała",  y = "Temperatura") +
-  theme_minimal()
-print(boxplot_TEMP.VSORRE)
-```
 
 ## Filter Outliers for Body Temperature
 
@@ -348,24 +374,285 @@ smoking_plot <- ggplot(smoking_data, aes(x = `V0.DD.SU.SUTRT_CIGARETTES.SUENRF..
 print(smoking_plot)
 
 ```
+# PORÓWNANIE TESTÓW 
+## CZY RÓŻNIĄ SIĘ MIEDZY GRUPAMI WYNIKI 
 
-## Save Knitr Tables
 
-```{r save-knitr}
-pandoc.table(adsl_stats, style = "rmarkdown")
-pandoc.table(advs_stats, style = "rmarkdown")
+# REGRESJA LOGISTYCZNA - sprawdzanie celu I rzędowego
+
+
+##skrypt do formatowania  regresja
+
+
+
+### Zmienna zależna to V0.PR.INVAVENT_PRTRT.PROCCUR, czyli informacja o tym, czy pacjent otrzymuje inwazyjne wsparcie oddechowe (wentylacja mechaniczna).
+
+```{r}
+# Konwersja zmiennej zależnej na faktor
+raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR <- as.factor(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
+
+```
+
+
+### Interpretacja wartości Estimate (β)
+
+- **β > 0** → zwiększa szanse na wentylację mechaniczną.
+- **β < 0** → zmniejsza szanse na wentylację mechaniczną.
+- **β = 0** → brak wpływu.
+
+**Przykład:**  
+Wiek pacjenta ma **β = 0.02782**, co oznacza, że **każdy dodatkowy rok życia zwiększa logarytm szansy na wentylację o 0.02782**.
+
+
+---
+
+```{r}
+logistic_model_final <- glm(
+  V0.PR.INVAVENT_PRTRT.PROCCUR ~ V0.DD.DM.AGE..Wiek + V0.DD.DM.SEX..Płeć + V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel,
+  data = raw_data, family = binomial()
+)
+summary(logistic_model_interaction)
+```
+```{r}
+coef(summary(logistic_model_final))
 ```
 
 ```{r}
-# Wyszukiwanie zmiennych zawierających określony wzorzec
-grep("V0\\.DD\\.SU\\.SUTRT_CIGARETTES\\.SUENRF", colnames(raw_data), value = TRUE)
+wyniki_tabeli <- tabela(logistic_model_final, signif, F, ufn=T)
+print(wyniki_tabeli)
+```
+
+```{r}
+logistic_model_interaction <- glm(V0.PR.INVAVENT_PRTRT.PROCCUR ~ `V0.DD.DM.AGE..Wiek` * `V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel`, 
+                                  data = raw_data, family = binomial())
+summary(logistic_model_interaction)
+
+```
+
+## Logistic Regression Analysis with Interaction Term
+
+A logistic regression model was used to predict the need for mechanical ventilation (`V0.PR.INVAVENT_PRTRT.PROCCUR`) based on patient age, cough presence, and their interaction.
+
+### **Key Findings**
+✔ The interaction between **age and cough is not statistically significant** (**p = 0.926**).  
+✔ Adding this interaction **increases model deviance** (**140.93 vs. 140.17**) and **AIC** (**148.93 vs. 148.17**), meaning the model is **not improved**.  
+✔ **Age was significant in the previous model (p = 0.0402), but is no longer significant after adding interaction (p = 0.218).**  
+✔ **The interaction should not be included in the final model** as it does not contribute to better predictions.  
+
+### **Next Steps**
+- Try interactions with other variables (**age × oxygen saturation, age × temperature**).
+- Include more clinical markers (**CRP, blood pressure, SpO₂**).
+- Compare logistic regression with **random forest or decision trees**.
+```{r}
+table(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
 
 ```
 ```{r}
-length(grep("V0\\.DD\\.SU\\.SUTRT_CIGARETTES\\.SUENRF", colnames(raw_data)))
+unique(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
 
 ```
 
+
+
+```{r}
+table(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR, useNA = "always")
+```
+
+
+```{r}
+str(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
+```
+```{r}
+raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR[raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR == ""] <- NA
+```
+
+```{r}
+raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR <- droplevels(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
+
+```
+
+```{r}
+table(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR, useNA = "always")
+str(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
+```
+
+
+```{r}
+raw_data$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel
+```
+```{r}
+sum(is.na(raw_data$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel))
+```
+
+```{r}
+raw_data_clean <- raw_data[!is.na(raw_data$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel), ]
+table(raw_data_clean$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel, useNA = "always")
+```
+
+```{r}
+logistic_model_clean <- glm(
+  V0.PR.INVAVENT_PRTRT.PROCCUR ~ V0.DD.DM.AGE..Wiek * V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel, 
+  data = raw_data_clean, 
+  family = binomial()
+)
+
+summary(logistic_model_clean)
+
+```
+```{r}
+table(raw_data_clean$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel, raw_data_clean$V0.PR.INVAVENT_PRTRT.PROCCUR)
+
+```
+
+
+```{r}
+grep("CHESTPRESSURE", names(raw_data), value = TRUE)
+
+```
+```{r}
+logistic_model_extended <- glm(V0.PR.INVAVENT_PRTRT.PROCCUR ~ 
+                                V0.DD.DM.AGE..Wiek + 
+                                V0.DD.DM.SEX..Płeć + 
+                                V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel +
+                                `V0.COVIDOBJ.FATESTCD_OCCUR.CHESTPRESSURE_FAORRES.07.mc..Ucisk.w.klatce.piersiowej`,
+                              data = raw_data, family = binomial())
+summary(logistic_model_extended)
+
+
+```
+```{r}
+length(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR)
+
+```
+
+```{r}
+data_used_in_model <- raw_data[complete.cases(raw_data[, c(
+  "V0.PR.INVAVENT_PRTRT.PROCCUR",
+  "V0.DD.DM.AGE..Wiek",
+  "V0.DD.DM.SEX..Płeć",
+  "V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel",
+  "V0.COVIDOBJ.FATESTCD_OCCUR.CHESTPRESSURE_FAORRES.07.mc..Ucisk.w.klatce.piersiowej"
+)]), ]
+
+```
+
+```{r}
+
+# Oblicz prawdopodobieństwa przewidywane przez model
+predicted_probs <- predict(logistic_model_extended, type = "response")
+length(predicted_probs)
+
+
+roc_curve <- roc(data_used_in_model$V0.PR.INVAVENT_PRTRT.PROCCUR, predicted_probs)
+plot(roc_curve, main = "ROC Curve for Logistic Model")
+
+
+# Rysujemy wykres
+plot(roc_curve, col = "blue", main = "Krzywa ROC dla modelu logistycznego")
+auc(roc_curve)  # Wyświetlenie wartości AUC
+```
+```{r}
+library(ggplot2)
+
+# Tworzymy zbiór nowych wartości wieku do predykcji
+new_data <- data.frame(
+  V0.DD.DM.AGE..Wiek = seq(min(raw_data_clean$V0.DD.DM.AGE..Wiek, na.rm = TRUE),
+                            max(raw_data_clean$V0.DD.DM.AGE..Wiek, na.rm = TRUE), length.out = 100),
+  V0.DD.DM.SEX..Płeć = "1. Kobieta",  # Załóżmy płeć dla predykcji
+  V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel = 0,
+  V0.COVIDOBJ.FATESTCD_OCCUR.CHESTPRESSURE_FAORRES.07.mc..Ucisk.w.klatce.piersiowej = 0
+)
+
+# Predykcja wartości dla nowego zbioru
+new_data$predicted_probs <- predict(logistic_model_extended, newdata = new_data, type = "response")
+
+# Tworzymy wykres
+ggplot(new_data, aes(x = V0.DD.DM.AGE..Wiek, y = predicted_probs)) +
+  geom_line(color = "red") +
+  labs(title = "Predykowane prawdopodobieństwo wentylacji mechanicznej",
+       x = "Wiek pacjenta", y = "Prawdopodobieństwo") +
+  theme_minimal()
+
+```
+  
+
+
+```{r}
+# raw_data_clean <- na.omit(raw_data)  # Usunięcie wierszy z NA
+# raw_data_clean$V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel
+```
+
+```{r}
+
+logistic_model_interaction <- glm(V0.PR.INVAVENT_PRTRT.PROCCUR ~ `V0.DD.DM.AGE..Wiek` * `V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel`, 
+                                  data = raw_data_clean, family = binomial())
+
+# Sprawdzenie długości po czyszczeniu
+length(predict(logistic_model_interaction, type = "response"))
+
+```
+
+```{r}
+# Model regresji logistycznej BEZ interakcji (ponieważ interakcja była nieistotna)
+logistic_model_final <- glm(
+  V0.PR.INVAVENT_PRTRT.PROCCUR ~ `V0.DD.DM.AGE..Wiek` + `V0.DD.DM.SEX..Płeć` + `V0.COVIDOBJ.FATESTCD_OCCUR.COUGH_FAORRES.02.mc..Kaszel`,
+  data = raw_data,
+  family = binomial()
+)
+
+# Podsumowanie modelu
+summary(logistic_model_final)
+
+# Obliczenie pseudo-R²
+if (!requireNamespace("pscl", quietly = TRUE)) install.packages("pscl")
+library(pscl)
+pR2(logistic_model_final)
+
+```
+
+```{r}
+
+# Ekstrakcja współczynników i przedziałów ufności
+coefs <- as.data.frame(confint(logistic_model_final))
+coefs$Estimate <- coef(logistic_model_final)
+coefs$Variable <- rownames(coefs)
+
+# Wykres Forest Plot
+ggplot(coefs, aes(x = Variable, y = Estimate, ymin = `2.5 %`, ymax = `97.5 %`)) +
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  theme_minimal() +
+  labs(title = "Forest Plot for Logistic Regression", x = "Predictor Variables", y = "Estimate (Log Odds)")
+
+```
+
+```{r}
+# Obliczenie i wykres ROC
+roc_curve <- roc(raw_data$V0.PR.INVAVENT_PRTRT.PROCCUR, predict(logistic_model_final, type = "response"))
+
+plot(roc_curve, main = "ROC Curve for Logistic Regression", col = "blue", lwd = 2)
+auc_value <- auc(roc_curve)
+cat("AUC:", auc_value, "\n")
+
+```
+```{r}
+ggplot(raw_data, aes(x = `V0.DD.DM.AGE..Wiek`, y = predict(logistic_model_final, type = "response"))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", color = "blue") +
+  labs(title = "Probability of Mechanical Ventilation by Age", x = "Age", y = "Predicted Probability") +
+  theme_minimal()
+
+```
+
+```{r}
+# Wykres reszt deviance
+plot(logistic_model_final$fitted.values, residuals(logistic_model_final, type = "deviance"),
+     main = "Deviance Residuals vs Fitted Values",
+     xlab = "Fitted Values",
+     ylab = "Deviance Residuals",
+     col = "darkred", pch = 19)
+abline(h = 0, lty = 2)
 
 ```
 
